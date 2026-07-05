@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlaviMusic — {{ guild_nome }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="rack">
+  <div class="top-bar">
+    <a class="voltar" href="/servidores">← servidores</a>
+    <a class="voltar" href="/logout">sair</a>
+  </div>
+  <header class="topo">
+    <h1>Flavi<span style="color:var(--amber)">Music</span></h1>
+    <div class="badge">{{ guild_nome }}</div>
+  </header>
+
+  <form class="busca-form" id="formBusca">
+    <input id="inputBusca" type="text" placeholder="Nome, link do YouTube ou Spotify..." autocomplete="off">
+    <button type="submit">▶</button>
+  </form>
+
+  <div class="strip">
+    <div class="eyebrow">Tocando agora</div>
+    <div class="vu" id="vu">
+      <span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="thumb-row" id="thumbRow" style="display:none;">
+      <img id="thumbImg" src="" alt="">
+      <div style="flex:1; min-width:0;">
+        <div class="track-title" id="trackTitle">Nada tocando</div>
+      </div>
+    </div>
+    <div class="track-title vazio" id="trackTitleSemThumb">Nada tocando</div>
+
+    <div class="progresso-linha">
+      <span id="tempoAtual">0:00</span>
+      <div class="progresso-barra"><div class="preenchido" id="progressoPreenchido" style="width:0%"></div></div>
+      <span id="tempoTotal">0:00</span>
+    </div>
+
+    <div class="meta-row">
+      <div>Canal: <b id="canalVoz">—</b></div>
+      <div>Loop: <b id="loopStatus">desativado</b></div>
+      <div>Pedido por: <b id="requester">—</b></div>
+    </div>
+
+    <div class="controles">
+      <button id="btnPlayPause" title="Pausar/Continuar">⏯️</button>
+      <button id="btnSkip" title="Pular">⏭️</button>
+      <button id="btnShuffle" title="Embaralhar">🔀</button>
+      <button id="btnLoop" title="Loop">🔁</button>
+      <button id="btnStop" class="parar" title="Parar">⏹️</button>
+    </div>
+
+    <div class="volume-linha">
+      <span>🔉</span>
+      <input type="range" id="sliderVolume" min="0" max="150" value="50">
+      <span id="volumeLabel">50%</span>
+    </div>
+  </div>
+
+  <div class="strip">
+    <p class="fila-titulo">Próximas na fila</p>
+    <div id="filaLista" class="fila-vazia">Fila vazia.</div>
+  </div>
+
+  <div class="strip">
+    <p class="fila-titulo">Configuração do servidor</p>
+    <div class="config-campo">
+      <label>Canal exclusivo para comandos de música</label>
+      <select id="selectCanal"><option value="">Qualquer canal</option></select>
+    </div>
+    <div class="config-campo">
+      <label>Cargo de DJ (pula/para sem votação)</label>
+      <select id="selectCargo"><option value="">Nenhum (padrão)</option></select>
+    </div>
+    <button class="btn" id="btnSalvarConfig" style="width:auto; padding:10px 18px;">Salvar configuração</button>
+  </div>
+
+  <div class="status-linha" id="statusLinha">conectando...</div>
+</div>
+
+<script>
+const GUILD_ID = "{{ guild_id }}";
+
+function formatarTempo(s) {
+  if (!s) return "0:00";
+  s = Math.floor(s);
+  const m = Math.floor(s / 60);
+  const seg = s % 60;
+  return `${m}:${seg.toString().padStart(2, '0')}`;
+}
+
+function renderStatus(s) {
+  const thumbRow = document.getElementById('thumbRow');
+  const tituloSemThumb = document.getElementById('trackTitleSemThumb');
+
+  if (s.atual) {
+    if (s.atual.thumbnail) {
+      thumbRow.style.display = 'flex';
+      tituloSemThumb.style.display = 'none';
+      document.getElementById('thumbImg').src = s.atual.thumbnail;
+      document.getElementById('trackTitle').textContent = s.atual.title;
+      document.getElementById('trackTitle').classList.remove('vazio');
+    } else {
+      thumbRow.style.display = 'none';
+      tituloSemThumb.style.display = 'block';
+      tituloSemThumb.textContent = s.atual.title;
+      tituloSemThumb.classList.remove('vazio');
+    }
+  } else {
+    thumbRow.style.display = 'none';
+    tituloSemThumb.style.display = 'block';
+    tituloSemThumb.textContent = 'Nada tocando';
+    tituloSemThumb.classList.add('vazio');
+  }
+
+  document.getElementById('vu').classList.toggle('ativo', !!s.tocando);
+  document.getElementById('canalVoz').textContent = s.canal_voz || '—';
+  const mapaLoop = {off: 'desativado', track: '🔂 música', queue: '🔁 fila'};
+  document.getElementById('loopStatus').textContent = mapaLoop[s.loop_mode] || 'desativado';
+  document.getElementById('btnLoop').classList.toggle('ativo', s.loop_mode !== 'off');
+  document.getElementById('requester').textContent = (s.atual && s.atual.requester) || '—';
+
+  const duracao = (s.atual && s.atual.duration) || 0;
+  document.getElementById('tempoAtual').textContent = formatarTempo(s.posicao);
+  document.getElementById('tempoTotal').textContent = formatarTempo(duracao);
+  const pct = duracao ? Math.min(100, (s.posicao / duracao) * 100) : 0;
+  document.getElementById('progressoPreenchido').style.width = pct + '%';
+
+  const sliderVol = document.getElementById('sliderVolume');
+  if (document.activeElement !== sliderVol) {
+    sliderVol.value = Math.round((s.volume || 0.5) * 100);
+    document.getElementById('volumeLabel').textContent = sliderVol.value + '%';
+  }
+
+  const filaEl = document.getElementById('filaLista');
+  if (s.fila && s.fila.length) {
+    filaEl.className = '';
+    filaEl.innerHTML = s.fila.map((t, i) =>
+      `<div class="fila-item"><span class="num">${i + 1}</span><span class="titulo">${t.title}</span><span class="remover" data-pos="${i + 1}">remover</span></div>`
+    ).join('');
+    filaEl.querySelectorAll('.remover').forEach(el => {
+      el.addEventListener('click', () => remover(parseInt(el.dataset.pos)));
+    });
+  } else {
+    filaEl.className = 'fila-vazia';
+    filaEl.textContent = 'Fila vazia.';
+  }
+
+  document.getElementById('statusLinha').textContent = `${s.servidor} · atualizado em tempo real`;
+}
+
+async function api(caminho, corpo) {
+  const res = await fetch(caminho, {
+    method: corpo === undefined ? 'GET' : 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+  });
+  return res.json();
+}
+
+async function acionar(acao, corpo) {
+  await api(`/api/player/${GUILD_ID}/${acao}`, corpo || {});
+}
+
+document.getElementById('formBusca').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('inputBusca');
+  if (!input.value.trim()) return;
+  await acionar('tocar', {busca: input.value.trim()});
+  input.value = '';
+});
+
+document.getElementById('btnPlayPause').addEventListener('click', () => acionar('pausar_continuar'));
+document.getElementById('btnSkip').addEventListener('click', () => acionar('pular'));
+document.getElementById('btnStop').addEventListener('click', () => acionar('parar'));
+document.getElementById('btnLoop').addEventListener('click', () => acionar('loop'));
+document.getElementById('btnShuffle').addEventListener('click', () => acionar('shuffle'));
+
+document.getElementById('sliderVolume').addEventListener('change', (e) => {
+  acionar('volume', {percentual: parseInt(e.target.value)});
+  document.getElementById('volumeLabel').textContent = e.target.value + '%';
+});
+
+async function remover(posicao) {
+  await acionar('remover', {posicao});
+}
+
+async function carregarConfig() {
+  const dados = await api(`/api/config/${GUILD_ID}`);
+  const selectCanal = document.getElementById('selectCanal');
+  const selectCargo = document.getElementById('selectCargo');
+  dados.canais_texto.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = '#' + c.nome;
+    if (dados.config.canal_musica_id && String(dados.config.canal_musica_id) === c.id) opt.selected = true;
+    selectCanal.appendChild(opt);
+  });
+  dados.cargos.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id; opt.textContent = r.nome;
+    if (dados.config.dj_role_id && String(dados.config.dj_role_id) === r.id) opt.selected = true;
+    selectCargo.appendChild(opt);
+  });
+}
+
+document.getElementById('btnSalvarConfig').addEventListener('click', async () => {
+  const canal = document.getElementById('selectCanal').value;
+  const cargo = document.getElementById('selectCargo').value;
+  await api(`/api/config/${GUILD_ID}`, {
+    canal_musica_id: canal ? parseInt(canal) : null,
+    dj_role_id: cargo ? parseInt(cargo) : null,
+  });
+  document.getElementById('statusLinha').textContent = 'Configuração salva.';
+});
+
+// WebSocket para atualizações em tempo real, com fallback de polling se cair.
+let ws;
+function conectarWs() {
+  const protocolo = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${protocolo}://${location.host}/ws/${GUILD_ID}`);
+  ws.onmessage = (ev) => renderStatus(JSON.parse(ev.data));
+  ws.onclose = () => setTimeout(conectarWs, 3000);
+  ws.onerror = () => ws.close();
+}
+conectarWs();
+
+// Fallback: também consulta via polling a cada 5s, caso o WebSocket não esteja disponível
+// (ex.: proxy/túnel que não suporta upgrade de conexão).
+setInterval(async () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    try { renderStatus(await api(`/api/player/${GUILD_ID}/status`)); } catch (e) {}
+  }
+}, 5000);
+
+carregarConfig();
+</script>
+</body>
+</html>

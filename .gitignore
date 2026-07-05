@@ -1,0 +1,19 @@
+# Segredos — NUNCA versionar
+.env
+
+# Dados em runtime
+data/*.json
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Sistema
+.DS_Store
+Thumbs.db
